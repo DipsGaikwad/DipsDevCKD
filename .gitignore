@@ -100,12 +100,17 @@ models/trained/*
 # Datasets
 # ------------------------------------------------------------
 
-# Do not commit raw/private/large datasets
-data/raw/*
-!data/raw/.gitkeep
+# ------------------------------------------------------------
+# Datasets
+# ------------------------------------------------------------
 
-# Processed datasets may also contain sensitive or generated data
-data/processed/*
+# Ignore all CSV files in raw and processed
+data/raw/**/*.csv
+data/processed/**/*.csv
+
+# Keep the folder structure intact
+!data/raw/.gitkeep
+!data/raw/thai/.gitkeep
 !data/processed/.gitkeep
 
 # ------------------------------------------------------------
