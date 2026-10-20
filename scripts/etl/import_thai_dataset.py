@@ -44,6 +44,9 @@ df_baseline["patient_id"] = (
 # ============================================================
 df_baseline["source_code"] = "TH"
 
+# De-identified cohort label; not a real name.
+df_baseline["full_name"] = "Thai Cohort Patient " + df_baseline["id"].astype(int).astype(str).str.zfill(6)
+
 df_baseline["source_patient_id"] = (
     df_baseline["id"].astype(int).astype(str)
 )
@@ -73,6 +76,7 @@ df_patients = df_baseline.rename(columns={
 # ============================================================
 patient_columns = [
     "patient_id",
+    "full_name",
     "source_code",
     "source_patient_id",
     "age_at_baseline",
@@ -141,7 +145,7 @@ print("MySQL connection successful")
 # ============================================================
 insert_sql = """
 INSERT INTO patients (
-    patient_id, source_code, source_patient_id,
+    patient_id, full_name, source_code, source_patient_id,
     age_at_baseline, gender, ihd, cvd,
     hypertension, diabetes, dyslipidemia,
     baseline_sbp, baseline_dbp, baseline_bmi,
@@ -153,7 +157,7 @@ INSERT INTO patients (
 VALUES (
     %s, %s, %s, %s, %s, %s, %s, %s,
     %s, %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s
+    %s, %s, %s, %s, %s, %s, %s, %s, %s
 )
 """
 

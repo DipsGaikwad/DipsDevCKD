@@ -66,7 +66,7 @@ class ProgressionLabel(Base):
     progression_id: Mapped[int]=mapped_column(BIGINT(unsigned=True),primary_key=True,autoincrement=True)
     patient_id: Mapped[str]=mapped_column(String(20),ForeignKey('patients.patient_id',ondelete='CASCADE'),nullable=False,unique=True)
     published_egfr_rate: Mapped[float|None]=mapped_column(DECIMAL(7,3)); egfr_slope_ours: Mapped[float|None]=mapped_column(DECIMAL(7,3))
-    rapid_progression: Mapped[bool]=mapped_column(Boolean,nullable=False); target_definition: Mapped[str]=mapped_column(String(255),nullable=False)
+    rapid_progression: Mapped[bool]=mapped_column(Boolean,nullable=False); target_definition: Mapped[str]=mapped_column("target_defination", String(255), nullable=False)
 
 class Notification(Base):
     __tablename__='notifications'
