@@ -36,7 +36,48 @@ function App(){
  async function loadResources(){try{const d=await request('/resources');setResources(d.items||d||[])}catch(e){notify(`Resources: ${e.message}`)}}
  async function loadProfile(){const d=await request('/profile');setProfile({full_name:d.full_name||'',email:d.email||'',hospital:d.hospital||''});setUser(d)}
  async function loadAdmin(){if(user?.role!=='ADMIN')return;try{const d=await request('/admin/users/pending');setAdminPending(d.items||d||[])}catch(e){notify(e.message)}}
- async function boot(t){try{const me=await apiRequest('/auth/me',{token:t});setUser(me);setTok(t);await Promise.all([loadPatients(),loadNotifications(),loadResources()]);await loadProfile();}catch(e){setToken(null);setTok(null);setUser(null);setError(e.message)}}
+ //async function boot(t){try{const me=await apiRequest('/auth/me',{token:t});setUser(me);setTok(t);await Promise.all([loadPatients(),loadNotifications(),loadResources()]);await loadProfile();}catch(e){setToken(null);setTok(null);setUser(null);setError(e.message)}}
+ async function boot(t) {
+  // Authentication is checked first. Only an authentication failure
+  // should send the user back to the login screen.
+  let me;
+
+  try {
+    me = await apiRequest('/auth/me', { token: t });
+  } catch (e) {
+    setToken(null);
+    setTok(null);
+    setUser(null);
+    setError(e.message || 'Your session has expired. Please sign in again.');
+    return;
+  }
+
+  // Keep the authenticated session even if a secondary API request fails.
+  setUser(me);
+  setTok(t);
+
+  const results = await Promise.allSettled([
+    loadPatients(),
+    loadNotifications(),
+    loadResources()
+  ]);
+
+  // Profile loading must not invalidate a successful login.
+  try {
+    await loadProfile();
+  } catch (e) {
+    notify(`Profile could not be loaded: ${e.message}`);
+  }
+
+  // Report patient-loading problems without signing the user out.
+  if (results[0].status === 'rejected') {
+    notify(
+      `Signed in successfully, but patient data could not load: ${
+        results[0].reason?.message || 'Check the backend connection.'
+      }`
+    );
+  }
+}
  useEffect(()=>{if(token)boot(token)},[]);
  useEffect(()=>{if(user?.role==='ADMIN')loadAdmin()},[user?.role]);
  const allFiltered=useMemo(()=>patients.filter(p=>(!query||`${p.name} ${p.id} ${p.source}`.toLowerCase().includes(query.toLowerCase()))&&(riskFilter==='All'||p.risk===riskFilter)).sort((a,b)=>sort==='Name'?String(a.name).localeCompare(String(b.name)):sort==='Risk'?['High','HIGH','Medium','MEDIUM','Low','LOW','Unassessed'].indexOf(a.risk)-['High','HIGH','Medium','MEDIUM','Low','LOW','Unassessed'].indexOf(b.risk):String(b.id).localeCompare(String(a.id))),[patients,query,riskFilter,sort]);
