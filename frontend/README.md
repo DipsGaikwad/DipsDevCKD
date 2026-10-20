@@ -1,68 +1,17 @@
-# CKD Care — React Frontend
+# CKD Care frontend (replacement bundle)
 
-A responsive React + Vite frontend prototype based on the submitted **DB DESIGN and FRONTEND.pdf** screens 2–11. The default theme is light/white for clinical readability; users can switch to dark mode from Profile → Theme & Appearance or the login screen. Theme preference persists in `localStorage`.
+This replacement uses the existing React/Vite + Recharts + Lucide stack and keeps the same CKD Care workspace sections (Dashboard, Patients, Visits, Risk Stratification, Reports, Knowledge Base and Profile/Settings). Demo patient records have been removed: the workspace requires a successful FastAPI login and loads records from MySQL.
 
-## Included screens
-1. Login / Sign Up
-2. Doctor Dashboard
-3. Patient List
-4. Add / Edit Patient
-5. Patient Profile
-6. Visits and Laboratory Results
-7. AI Risk Assessment / SHAP explanation placeholder
-8. Clinical Assistant (RAG interface)
-9. Reports & Analytics
-10. Knowledge Base
-11. Profile and Settings
+## Run
+1. Copy this folder over your existing `frontend` folder after backing up the old folder.
+2. Open a terminal in this folder and run `npm install`.
+3. Copy `.env.example` to `.env` (frontend env, not your root backend `.env`) and keep `VITE_API_BASE_URL=http://localhost:8000`.
+4. Start it using `npm run dev`.
 
-## Run locally
-Requirements: Node.js 20+ recommended.
+Use your existing root `.env` for the backend database connection. Login supports username or email. Sign-up is for DOCTOR/DEO only and accounts must be approved by an Admin.
 
-```bash
-npm install
-npm run dev
-```
-
-Open the local URL printed by Vite (usually `http://localhost:5173`). To verify a production bundle:
-
-```bash
-npm run build
-npm run preview
-```
-
-## Backend integration
-By default, this app runs in **demo mode** using clearly labelled sample data. It does not pretend to return real predictions or live clinical retrieval. Set up `.env` from `.env.example`:
-
-```env
-VITE_API_BASE_URL=http://localhost:8000
-VITE_USE_API=true
-```
-
-Restart Vite after changing environment variables. The starter API service is in `src/api.js`. Current optional calls are:
-- `POST /patients/{patient_id}/analyze`
-- `POST /rag/query` with `{ "question": "...", "patient_id": "P123" }`
-
-These routes are assumptions to align with the CKD project roadmap, not a guarantee that your current FastAPI backend implements them. Update `src/api.js` and the call sites in `src/App.jsx` to match the actual backend contract. Patient create/edit/visit changes currently stay in React state and are not persisted to MySQL.
-
-## Important implementation notes
-- Demo patient records are fictional examples. Replace them with API data before any real deployment.
-- The demo risk category is based on simple illustrative rules. It is **not** the trained Random Forest model, not a calibrated probability and not a clinical assessment.
-- SHAP factors, charts and knowledge-source entries are interface scaffolding until connected to backend responses.
-- RAG answers are clearly marked as demo responses when live API retrieval is unavailable. Add source citations and document metadata from the backend before representing any answer as evidence-grounded.
-- The interface is a student-project prototype, not a medical device. Do not use it to make patient-care decisions.
-- For real clinical data, implement authentication/authorization, role restrictions, audit trails, server-side validation, secure transport, appropriate data governance and privacy controls. Do not store secrets in frontend code.
-
-## Project structure
-```
-ckd-care-frontend/
-├── index.html
-├── vite.config.js
-├── package.json
-├── .env.example
-├── README.md
-└── src/
-    ├── main.jsx
-    ├── App.jsx
-    ├── api.js
-    └── styles.css
-```
+## Notes
+- White/dark theme remains supported. UI is styled to match the current blue/white clinical CKD Care layout and existing section names; this is a replacement build, not a byte-for-byte copy of your original `App.jsx`/`styles.css`.
+- RAG is intentionally not connected. Knowledge Base upload stores the document and metadata; it does not index the document or generate embeddings.
+- AI risk labels are not derived from rules in this UI. Only backend saved analysis results are shown. The trained model artifact is not included because the original project ignores model artifacts in Git; the `/predict` endpoint requires the local `models/trained/ckd_model.joblib` file.
+- This is an academic prototype and has not been validated for real patient care or production deployment.
