@@ -12,10 +12,10 @@ from backend.auth import hash_password, verify_password, create_token, get_curre
 from backend.patients import router as patients_router
 from backend.resources import router as resources_router
 from backend.reports import router as reports_router
-
+from backend.clinical_assistant import router as clinical_assistant_router
 app=FastAPI(title='CKD Care API',version='1.1.0',description='MySQL-backed CKD Care student prototype. RAG is intentionally deferred.')
 app.add_middleware(CORSMiddleware,allow_origins=allowed_origins(),allow_credentials=True,allow_methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allow_headers=['Authorization','Content-Type'])
-app.include_router(patients_router); app.include_router(resources_router); app.include_router(reports_router)
+app.include_router(patients_router); app.include_router(resources_router); app.include_router(reports_router); app.include_router(clinical_assistant_router);
 
 @app.get('/')
 def root(): return {'message':'CKD Care API is running','database':'configured','rag':'deferred'}
