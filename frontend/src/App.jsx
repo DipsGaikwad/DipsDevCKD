@@ -93,7 +93,7 @@ function App() {
     });
 
   async function loadPatients() {
-    const d = await request('/patients?limit=500');
+    const d = await request('/patients?limit=1000');
     const rows = (d.items || d.patients || d || []).map(mapPatient);
     setPatients(rows);
 
