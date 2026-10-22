@@ -3,7 +3,42 @@ import {Activity, AlertCircle, Bell, BookOpen, CalendarDays, Check, ChevronDown,
 import {Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {apiRequest, setToken, getToken, downloadBlob} from './api';
 import ClinicalAssistant from './ClinicalAssistant';
-const riskColors={HIGH:'#e45c65',High:'#e45c65',MEDIUM:'#e8a23c',Medium:'#e8a23c',LOW:'#22a783',Low:'#22a783',Unknown:'#94a3b8'};
+const riskColors = {
+  HIGH: '#e45c65', High: '#e45c65',
+  MEDIUM: '#e8a23c', Medium: '#e8a23c',
+  LOW: '#22a783', Low: '#22a783',
+  Unknown: '#94a3b8', Unassessed: '#94a3b8'
+};
+
+// Keep backend risk labels intact in meaning while comparing/displaying them consistently.
+function normalizeRisk(value) {
+  const risk = String(value ?? '').trim().toLowerCase();
+  if (risk === 'high') return 'High';
+  if (risk === 'medium') return 'Medium';
+  if (risk === 'low') return 'Low';
+  return 'Unassessed';
+}
+
+function isRiskMatch(patientRisk, selectedRisk) {
+  return selectedRisk === 'All' || normalizeRisk(patientRisk) === normalizeRisk(selectedRisk);
+}
+
+function isValidDate(value) {
+  return typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Date.parse(value));
+}
+
+// Mirrors the frontend's supported report periods; invalid/missing dates are excluded
+// from bounded periods, but remain included when Period is All.
+function isWithinReportPeriod(dateValue, period, now = new Date()) {
+  if (period === 'All') return true;
+  if (!isValidDate(dateValue)) return false;
+  const months = { 'Last month': 1, '3 months': 3, '6 months': 6, '12 months': 12 }[period];
+  if (!months) return true;
+  const cutoff = new Date(now);
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const date = new Date(dateValue);
+  return date <= now && date >= cutoff;
+}
 const initialSettings={alerts:true,followups:true,weekly:true,system:true};
 function initials(n='User'){return String(n).trim().split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase() || 'U'}
 function mapPatient(p){
@@ -15,7 +50,7 @@ function mapPatient(p){
    egfr:latest.egfr_ml_min_1_73m2 ?? p.baseline_egfr ?? null,acr:latest.acr_mg_g ?? p.baseline_albuminuria ?? null,
    creatinine:latest.creatinine_mg_dl ?? null,bmi:p.baseline_bmi ?? null,hba1c:latest.hba1c_percent ?? null,
    bp:(latest.sbp_mmhg!=null&&latest.dbp_mmhg!=null)?`${latest.sbp_mmhg} / ${latest.dbp_mmhg}`:(p.baseline_sbp!=null&&p.baseline_dbp!=null?`${p.baseline_sbp} / ${p.baseline_dbp}`:'—'),
-   risk:p.latest_analysis?.risk_level||'Unassessed', visits:(p.visits||[]).map(v=>{const l=(v.lab_results||v.lab_result?[...(v.lab_results||[v.lab_result])].filter(Boolean):[])[0]||{};return {date:v.visit_date,egfr:l.egfr_ml_min_1_73m2,acr:l.acr_mg_g,creatinine:l.creatinine_mg_dl,bp:l.sbp_mmhg!=null&&l.dbp_mmhg!=null?`${l.sbp_mmhg}/${l.dbp_mmhg}`:'—',hb:l.hemoglobin_g_dl,potassium:l.potassium_mmol_l};}).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))};
+   risk:String(p.latest_analysis?.risk_level ?? '').trim() || 'Unassessed', visits:(p.visits||[]).map(v=>{const l=(v.lab_results||v.lab_result?[...(v.lab_results||[v.lab_result])].filter(Boolean):[])[0]||{};return {date:v.visit_date,egfr:l.egfr_ml_min_1_73m2,acr:l.acr_mg_g,creatinine:l.creatinine_mg_dl,bp:l.sbp_mmhg!=null&&l.dbp_mmhg!=null?`${l.sbp_mmhg}/${l.dbp_mmhg}`:'—',hb:l.hemoglobin_g_dl,potassium:l.potassium_mmol_l};}).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))};
 }
 function Button({children,kind='secondary',...props}){return <button className={`btn ${kind}`} {...props}>{children}</button>}
 function PageTitle({eyebrow,title,subtitle,actions}){return <div className="page-title"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1>{subtitle&&<p>{subtitle}</p>}</div>{actions&&<div className="title-actions">{actions}</div>}</div>}
@@ -93,7 +128,7 @@ function App() {
     });
 
   async function loadPatients() {
-    const d = await request('/patients?limit=1000');
+    const d = await request('/patients?limit=250');
     const rows = (d.items || d.patients || d || []).map(mapPatient);
     setPatients(rows);
 
@@ -209,27 +244,71 @@ function App() {
     return () => window.removeEventListener('ckd-go-page', handler);
   }, []);
 
-  const allFiltered = useMemo(
-    () =>
-      patients
-        .filter(
-          p =>
-            (!query ||
-              `${p.name} ${p.id} ${p.source}`
-                .toLowerCase()
-                .includes(query.toLowerCase())) &&
-            (riskFilter === 'All' || p.risk === riskFilter)
-        )
-        .sort((a, b) =>
-          sort === 'Name'
-            ? String(a.name).localeCompare(String(b.name))
-            : sort === 'Risk'
-              ? ['High', 'HIGH', 'Medium', 'MEDIUM', 'Low', 'LOW', 'Unassessed'].indexOf(a.risk) -
-                ['High', 'HIGH', 'Medium', 'MEDIUM', 'Low', 'LOW', 'Unassessed'].indexOf(b.risk)
-              : String(b.id).localeCompare(String(a.id))
-        ),
-    [patients, query, riskFilter, sort]
-  );
+  // Dashboard and Patients share their existing search/risk controls. Reports use
+  // reportFilteredPatients below and never inherit these global filters.
+  const allFiltered = useMemo(() => {
+    const riskOrder = { High: 0, Medium: 1, Low: 2, Unassessed: 3 };
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return patients
+      .filter(patient => {
+        const matchesSearch = !normalizedQuery ||
+          `${patient.name} ${patient.id} ${patient.source ?? ''}`
+            .toLowerCase()
+            .includes(normalizedQuery);
+        return matchesSearch && isRiskMatch(patient.risk, riskFilter);
+      })
+      .sort((a, b) => {
+        if (sort === 'Name') return String(a.name).localeCompare(String(b.name));
+        if (sort === 'Risk') {
+          return riskOrder[normalizeRisk(a.risk)] - riskOrder[normalizeRisk(b.risk)];
+        }
+        return String(b.id).localeCompare(String(a.id));
+      });
+  }, [patients, query, riskFilter, sort]);
+
+  // Reports have an independent cohort. A bounded period includes patients with at
+  // least one valid visit date in that window; All retains records with missing dates.
+  const reportFilteredPatients = useMemo(() => {
+    const normalizedSearch = reportFilter.search.trim().toLowerCase();
+    return patients.filter(patient => {
+      const matchesRisk = isRiskMatch(patient.risk, reportFilter.risk);
+      const matchesSource = reportFilter.source === 'All' ||
+        patient.source === reportFilter.source;
+      const matchesSearch = !normalizedSearch ||
+        `${patient.name} ${patient.id}`.toLowerCase().includes(normalizedSearch);
+      const matchesPeriod = reportFilter.period === 'All' ||
+        patient.visits.some(visit => isWithinReportPeriod(visit.date, reportFilter.period));
+      return matchesRisk && matchesSource && matchesSearch && matchesPeriod;
+    });
+  }, [patients, reportFilter]);
+
+  // Visits used by report charts/statistics are restricted to the same report period.
+  const reportVisits = useMemo(() => reportFilteredPatients.flatMap(patient =>
+    patient.visits
+      .filter(visit => isWithinReportPeriod(visit.date, reportFilter.period))
+      .map(visit => ({ ...visit, patientId: patient.id, patientName: patient.name }))
+  ), [reportFilteredPatients, reportFilter.period]);
+
+  const reportRiskCounts = useMemo(() => {
+    const counts = { High: 0, Medium: 0, Low: 0, Unassessed: 0 };
+    reportFilteredPatients.forEach(patient => { counts[normalizeRisk(patient.risk)] += 1; });
+    return counts;
+  }, [reportFilteredPatients]);
+
+  const reportMeanEgfr = useMemo(() => {
+    const values = reportFilteredPatients
+      .map(patient => Number(patient.egfr))
+      .filter(value => Number.isFinite(value));
+    return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : '—';
+  }, [reportFilteredPatients]);
+
+  const reportHighAcrCount = reportFilteredPatients.filter(
+    patient => patient.acr != null && Number.isFinite(Number(patient.acr)) && Number(patient.acr) >= 300
+  ).length;
+  const reportPatientsWithVisits = reportFilteredPatients.filter(patient =>
+    patient.visits.some(visit => isWithinReportPeriod(visit.date, reportFilter.period))
+  ).length;
 
   const selected =
     patients.find(p => p.id === selectedId) || allFiltered[0] || null;
@@ -582,9 +661,9 @@ function App() {
     );
   }
 
-  const high = patients.filter(p => ['HIGH', 'High'].includes(p.risk)).length;
-  const medium = patients.filter(p => ['MEDIUM', 'Medium'].includes(p.risk)).length;
-  const low = patients.filter(p => ['LOW', 'Low'].includes(p.risk)).length;
+  const high = patients.filter(p => normalizeRisk(p.risk) === 'High').length;
+  const medium = patients.filter(p => normalizeRisk(p.risk) === 'Medium').length;
+  const low = patients.filter(p => normalizeRisk(p.risk) === 'Low').length;
 
   return (
     <div className={`app theme-${theme}`}>
@@ -1215,7 +1294,7 @@ function App() {
 
               <Panel title="Saved progression-analysis results">
                 <PatientTable
-                  rows={allFiltered.filter(p => p.risk !== 'Unassessed')}
+                  rows={allFiltered.filter(p => normalizeRisk(p.risk) !== 'Unassessed')}
                   open={id => {
                     setSelectedId(id);
                     go('Patient Profile');
@@ -1235,7 +1314,7 @@ function App() {
                   remove={removePatient}
                 />
 
-                {!allFiltered.some(p => p.risk !== 'Unassessed') && (
+                {!allFiltered.some(p => normalizeRisk(p.risk) !== 'Unassessed') && (
                   <p className="empty-state">
                     No saved predictions yet. The model file is not included
                     in this package; analysis is intentionally not fabricated.
@@ -1277,7 +1356,7 @@ function App() {
                     <select
                       value={reportFilter.risk}
                       onChange={e =>
-                        setReportFilter({ ...reportFilter, risk: e.target.value })
+                        setReportFilter(current => ({ ...current, risk: e.target.value }))
                       }
                     >
                       <option>All</option>
@@ -1293,7 +1372,7 @@ function App() {
                     <select
                       value={reportFilter.source}
                       onChange={e =>
-                        setReportFilter({ ...reportFilter, source: e.target.value })
+                        setReportFilter(current => ({ ...current, source: e.target.value }))
                       }
                     >
                       <option>All</option>
@@ -1308,7 +1387,7 @@ function App() {
                     <select
                       value={reportFilter.period}
                       onChange={e =>
-                        setReportFilter({ ...reportFilter, period: e.target.value })
+                        setReportFilter(current => ({ ...current, period: e.target.value }))
                       }
                     >
                       <option>Last month</option>
@@ -1324,7 +1403,7 @@ function App() {
                     <input
                       value={reportFilter.search}
                       onChange={e =>
-                        setReportFilter({ ...reportFilter, search: e.target.value })
+                        setReportFilter(current => ({ ...current, search: e.target.value }))
                       }
                       placeholder="Name or ID"
                     />
@@ -1335,34 +1414,27 @@ function App() {
               <div className="report-stats">
                 <div className="stat-card">
                   <span>Visible patients</span>
-                  <strong>{allFiltered.length}</strong>
-                  <small>Workspace cohort</small>
+                  <strong>{reportFilteredPatients.length}</strong>
+                  <small>Reports-filtered cohort</small>
                 </div>
                 <div className="stat-card">
                   <span>Mean current eGFR</span>
                   <strong>
-                    {patients.filter(p => p.egfr != null).length
-                      ? (
-                          patients
-                            .filter(p => p.egfr != null)
-                            .reduce((s, p) => s + Number(p.egfr), 0) /
-                          patients.filter(p => p.egfr != null).length
-                        ).toFixed(1)
-                      : '—'}
+                    {reportMeanEgfr}
                   </strong>
                   <small>Available measurements only</small>
                 </div>
                 <div className="stat-card">
                   <span>ACR ≥ 300 mg/g</span>
                   <strong>
-                    {patients.filter(p => p.acr != null && p.acr >= 300).length}
+                    {reportHighAcrCount}
                   </strong>
                   <small>Latest measurement</small>
                 </div>
                 <div className="stat-card">
                   <span>With visit history</span>
                   <strong>
-                    {patients.filter(p => p.visits.length > 0).length}
+                    {reportPatientsWithVisits}
                   </strong>
                   <small>Relational visit records</small>
                 </div>
@@ -1375,13 +1447,10 @@ function App() {
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={[
-                            { name: 'High', value: high },
-                            { name: 'Medium', value: medium },
-                            { name: 'Low', value: low },
-                            {
-                              name: 'Unassessed',
-                              value: patients.length - high - medium - low
-                            }
+                            { name: 'High', value: reportRiskCounts.High },
+                            { name: 'Medium', value: reportRiskCounts.Medium },
+                            { name: 'Low', value: reportRiskCounts.Low },
+                            { name: 'Unassessed', value: reportRiskCounts.Unassessed }
                           ]}
                         >
                           <CartesianGrid strokeDasharray="3 3" />
@@ -1399,10 +1468,10 @@ function App() {
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={[
-                            { name: 'Diabetes', value: patients.filter(p => p.diabetes).length },
-                            { name: 'Hypertension', value: patients.filter(p => p.hypertension).length },
-                            { name: 'IHD', value: patients.filter(p => p.ihd).length },
-                            { name: 'CVD', value: patients.filter(p => p.cvd).length }
+                            { name: 'Diabetes', value: reportFilteredPatients.filter(p => p.diabetes).length },
+                            { name: 'Hypertension', value: reportFilteredPatients.filter(p => p.hypertension).length },
+                            { name: 'IHD', value: reportFilteredPatients.filter(p => p.ihd).length },
+                            { name: 'CVD', value: reportFilteredPatients.filter(p => p.cvd).length }
                           ]}
                         >
                           <CartesianGrid strokeDasharray="3 3" />
@@ -1415,15 +1484,9 @@ function App() {
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart
-                          data={patients
-                            .flatMap(p =>
-                              p.visits.map(v => ({
-                                date: v.date,
-                                patient: p.id,
-                                egfr: v.egfr
-                              }))
-                            )
-                            .filter(x => x.egfr != null)
+                          data={reportVisits
+                            .filter(visit => visit.egfr != null && Number.isFinite(Number(visit.egfr)) && isValidDate(visit.date))
+                            .map(visit => ({ date: visit.date, patient: visit.patientId, egfr: Number(visit.egfr) }))
                             .sort((a, b) => String(a.date).localeCompare(String(b.date)))
                             .slice(-150)}
                         >
@@ -1444,8 +1507,8 @@ function App() {
 
                   <div className="report-note">
                     <AlertCircle size={15} />
-                    Browser chart is a preview. The PDF is produced server-side
-                    using the same selected filters and saved records.
+                    Browser preview uses loaded records and visit dates; the backend remains
+                    authoritative for PDF generation and its period semantics.
                   </div>
                 </Panel>
 
@@ -1455,10 +1518,10 @@ function App() {
                 >
                   <div className="report-risk-list">
                     {[
-                      ['High', high],
-                      ['Medium', medium],
-                      ['Low', low],
-                      ['Unassessed', patients.length - high - medium - low]
+                      ['High', reportRiskCounts.High],
+                      ['Medium', reportRiskCounts.Medium],
+                      ['Low', reportRiskCounts.Low],
+                      ['Unassessed', reportRiskCounts.Unassessed]
                     ].map(([n, v]) => (
                       <div key={n}>
                         <span>
@@ -1467,7 +1530,7 @@ function App() {
                         </span>
                         <strong>{v}</strong>
                         <small>
-                          {patients.length ? Math.round((v / patients.length) * 100) : 0}%
+                          {reportFilteredPatients.length ? Math.round((v / reportFilteredPatients.length) * 100) : 0}%
                         </small>
                       </div>
                     ))}
@@ -1484,19 +1547,7 @@ function App() {
                 subtitle="Server report filters are applied when exporting"
               >
                 <PatientTable
-                  rows={allFiltered.filter(
-                    p =>
-                      (reportFilter.risk === 'All' ||
-                        p.risk.toUpperCase() === reportFilter.risk.toUpperCase() ||
-                        (reportFilter.risk === 'Unassessed' &&
-                          p.risk === 'Unassessed')) &&
-                      (reportFilter.source === 'All' ||
-                        p.source === reportFilter.source) &&
-                      (!reportFilter.search ||
-                        `${p.name} ${p.id}`
-                          .toLowerCase()
-                          .includes(reportFilter.search.toLowerCase()))
-                  )}
+                  rows={reportFilteredPatients}
                   open={id => {
                     setSelectedId(id);
                     go('Patient Profile');
