@@ -56,13 +56,349 @@ function Button({children,kind='secondary',...props}){return <button className={
 function PageTitle({eyebrow,title,subtitle,actions}){return <div className="page-title"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1>{subtitle&&<p>{subtitle}</p>}</div>{actions&&<div className="title-actions">{actions}</div>}</div>}
 function Panel({title,subtitle,children,actions}){return <section className="panel"><div className="panel-heading"><div><h3>{title}</h3>{subtitle&&<p>{subtitle}</p>}</div>{actions}</div>{children}</section>}
 function Tag({children}){const c=String(children||'Unknown').toLowerCase().replace(/[^a-z]/g,'-');return <span className={`tag tag-${c}`}>{children}</span>}
-function Login({onLogin,onRegister,loading,error}){const [tab,setTab]=useState('Login');const [email,setEmail]=useState('');const [username,setUsername]=useState('');const [name,setName]=useState('');const [role,setRole]=useState('DOCTOR');const [password,setPassword]=useState('');return <div className="login-page"><section className="login-card"><div className="login-visual"><div className="brand"><span className="brand-mark"><HeartPulse/></span><div><b>CKD Care</b><small>Clinical decision support</small></div></div><div className="kidney-art"><Activity size={78}/></div><div className="visual-copy"><p className="eyebrow">CLINICAL INTELLIGENCE, WITH CARE</p><h1>Better insights.<br/>Better kidney health.</h1><p>Review patient records, longitudinal laboratory history and progression analysis in one workspace.</p><div className="benefit"><Check size={16}/> Database-backed patient records</div><div className="benefit"><Check size={16}/> Secure role-controlled access</div><div className="benefit"><Check size={16}/> Clinical reports for review</div></div><div className="visual-footer">Clinical decision support · Clinician remains responsible for interpretation.</div></div><div className="login-form-wrap"><div className="form-heading"><span className="eyebrow">WELCOME TO CKD CARE</span><h2>{tab==='Login'?'Welcome back':'Create an account'}</h2><p>{tab==='Login'?'Sign in to your workspace.':'Doctor and DEO accounts require Admin approval.'}</p></div><div className="auth-tabs"><button className={tab==='Login'?'selected':''} onClick={()=>setTab('Login')}>Login</button><button className={tab==='Sign Up'?'selected':''} onClick={()=>setTab('Sign Up')}>Sign Up</button></div><form onSubmit={async e=>{e.preventDefault();if(tab==='Login')await onLogin({username,email,password});else await onRegister({username,email,password,full_name:name,role});}}>
-{tab==='Sign Up'&&<><label>Full name<input value={name} onChange={e=>setName(e.target.value)} required maxLength={150}/></label><label>Username<input value={username} onChange={e=>setUsername(e.target.value)} required minLength={3} maxLength={100}/></label><label>Requested role<select value={role} onChange={e=>setRole(e.target.value)}><option value="DOCTOR">Doctor</option><option value="DEO">Data Entry Operator (DEO)</option></select></label></>}
-{tab==='Login'&&<label>Username or email<input value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" placeholder="Enter username or email"/></label>}
-<label>Email address{tab==='Sign Up'&&<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email"/>}{tab==='Login'&&<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Use this or username" autoComplete="email"/>}</label>
-<label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={10} autoComplete={tab==='Login'?'current-password':'new-password'}/></label>
-{error&&<p className="form-error">{error}</p>}<button className="btn primary full" type="submit" disabled={loading}>{loading?'Please wait…':tab==='Login'?'Sign in':'Create account'} <ChevronRight size={16}/></button>
-</form><p className="login-legal">Pending accounts cannot access patient data. Do not use this student project for real patient-care decisions without security, privacy and clinical validation.</p></div></section></div>}
+
+function Login({ onLogin, onRegister, loading, error }) {
+  const [tab, setTab] = useState('Login');
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('DOCTOR');
+  const [password, setPassword] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [formError, setFormError] = useState('');
+  //replaced  code
+  useEffect(() => {
+  const params = new URLSearchParams(
+    window.location.hash.replace(/^#/, "")
+  );
+
+  const token = params.get("reset_token");
+
+  if (token) {
+    setResetToken(token);
+    setTab("Reset");
+
+    // Remove the token from the address bar after capturing it.
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search
+    );
+  }
+}, []);
+
+  
+
+async function requestReset(e) {
+  e.preventDefault();
+  setBusy(true);
+  setMessage('');
+  setFormError('');
+
+  try {
+    const result = await apiRequest('/auth/forgot-password', {
+      method: 'POST',
+      body: { email: email.trim() },
+      token: null,
+    });
+
+    setMessage(
+      result.message ||
+        'If the account exists, reset instructions have been generated. Check the backend terminal.'
+    );
+  } catch (err) {
+    setFormError(err.message || 'Unable to request a password reset.');
+  } finally {
+    setBusy(false);
+  }
+}
+
+
+  async function submitNewPassword(e) {
+    e.preventDefault();
+    setMessage('');
+    setFormError('');
+
+    if (newPassword.length < 10 || newPassword.length > 128) {
+      setFormError('Password must be between 10 and 128 characters.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setFormError('The passwords do not match.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await apiRequest('/auth/reset-password', {
+        method: 'POST',
+        body: { token: resetToken, new_password: newPassword },
+        token: null
+      });
+      setMessage(result.message);
+      setPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setResetToken('');
+      setTab('Login');
+    } catch (err) {
+      setFormError(err.message || 'Unable to reset password.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const heading = {
+    Login: 'Welcome back',
+    'Sign Up': 'Create an account',
+    Forgot: 'Reset your password',
+    Reset: 'Choose a new password'
+  }[tab];
+
+  const subtitle = {
+    Login: 'Sign in to your workspace.',
+    'Sign Up': 'Doctor and DEO accounts require Admin approval.',
+    Forgot: 'We will email a reset link if an account matches.',
+    Reset: 'Choose a new password for your CKD Care account.'
+  }[tab];
+  return (
+    <div className="login-page">
+      <section className="login-card">
+        <div className="login-visual">
+          <div className="brand">
+            <span className="brand-mark"><HeartPulse /></span>
+            <div>
+              <b>CKD Care</b>
+              <small>Clinical decision support</small>
+            </div>
+          </div>
+          <div className="kidney-art"><Activity size={78} /></div>
+          <div className="visual-copy">
+            <p className="eyebrow">CLINICAL INTELLIGENCE, WITH CARE</p>
+            <h1>Better insights.<br />Better kidney health.</h1>
+            <p>
+              Review patient records, longitudinal laboratory history and
+              progression analysis in one workspace.
+            </p>
+            <div className="benefit"><Check size={16} /> Database-backed patient records</div>
+            <div className="benefit"><Check size={16} /> Secure role-controlled access</div>
+            <div className="benefit"><Check size={16} /> Clinical reports for review</div>
+          </div>
+          <div className="visual-footer">
+            Clinical decision support · Clinician remains responsible for interpretation.
+          </div>
+        </div>
+
+        <div className="login-form-wrap">
+          <div className="form-heading">
+            <span className="eyebrow">WELCOME TO CKD CARE</span>
+            <h2>{heading}</h2>
+            <p>{subtitle}</p>
+          </div>
+
+          {['Login', 'Sign Up'].includes(tab) && (
+            <div className="auth-tabs">
+              <button
+                type="button"
+                className={tab === 'Login' ? 'selected' : ''}
+                onClick={() => {
+                  setTab('Login');
+                  setMessage('');
+                  setFormError('');
+                }}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                className={tab === 'Sign Up' ? 'selected' : ''}
+                onClick={() => {
+                  setTab('Sign Up');
+                  setMessage('');
+                  setFormError('');
+                }}
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
+
+          {tab === 'Login' && (
+            <form onSubmit={async e => {
+              e.preventDefault();
+              await onLogin({ username, email, password });
+            }}>
+              <label>
+                Username or email
+                <input
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  autoComplete="username"
+                  placeholder="Enter username or email"
+                />
+              </label>
+              <label>
+                Email address (optional)
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="Use this or username"
+                  autoComplete="email"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  minLength={10}
+                  autoComplete="current-password"
+                />
+              </label>
+              {error && <p className="form-error">{error}</p>}
+              {message && <p>{message}</p>}
+              {formError && <p className="form-error">{formError}</p>}
+              <button className="btn primary full" type="submit" disabled={loading}>
+                {loading ? 'Please wait…' : 'Sign in'} <ChevronRight size={16} />
+              </button>
+              <p>
+                <button
+                  className="table-link"
+                  type="button"
+                  onClick={() => {
+                    setEmail('');
+                    setMessage('');
+                    setFormError('');
+                    setTab('Forgot');
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </p>
+            </form>
+          )}
+
+          {tab === 'Sign Up' && (
+            <form onSubmit={async e => {
+              e.preventDefault();
+              await onRegister({ username, email, password, full_name: name, role });
+            }}>
+              <label>
+                Full name
+                <input value={name} onChange={e => setName(e.target.value)} required maxLength={150} />
+              </label>
+              <label>
+                Username
+                <input value={username} onChange={e => setUsername(e.target.value)} required minLength={3} maxLength={100} />
+              </label>
+              <label>
+                Email address
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+              </label>
+              <label>
+                Requested role
+                <select value={role} onChange={e => setRole(e.target.value)}>
+                  <option value="DOCTOR">Doctor</option>
+                  <option value="DEO">Data Entry Operator (DEO)</option>
+                </select>
+              </label>
+              <label>
+                Password
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={10} maxLength={128} autoComplete="new-password" />
+              </label>
+              {error && <p className="form-error">{error}</p>}
+              <button className="btn primary full" type="submit" disabled={loading}>
+                {loading ? 'Please wait…' : 'Create account'} <ChevronRight size={16} />
+              </button>
+            </form>
+          )}
+
+          {tab === 'Forgot' && (
+            <form onSubmit={requestReset}>
+              <label>
+                Account email address
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
+              </label>
+              {message && <p>{message}</p>}
+              {formError && <p className="form-error">{formError}</p>}
+              <button className="btn primary full" type="submit" disabled={busy}>
+                {busy ? 'Submitting…' : 'Send reset link'}
+              </button>
+              <p>
+                <button type="button" className="table-link" onClick={() => {
+                  setTab('Login');
+                  setMessage('');
+                  setFormError('');
+                }}>
+                  Back to login
+                </button>
+              </p>
+            </form>
+          )}
+
+          {tab === 'Reset' && (
+            <form onSubmit={submitNewPassword}>
+              {!resetToken && (
+                <p className="form-error">
+                  The reset token is missing. Request a new reset link.
+                </p>
+              )}
+              <label>
+                New password
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  required
+                  minLength={10}
+                  maxLength={128}
+                  autoComplete="new-password"
+                />
+              </label>
+              <label>
+                Confirm new password
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={10}
+                  maxLength={128}
+                  autoComplete="new-password"
+                />
+              </label>
+              {message && <p>{message}</p>}
+              {formError && <p className="form-error">{formError}</p>}
+              <button className="btn primary full" type="submit" disabled={busy || !resetToken}>
+                {busy ? 'Changing password…' : 'Change password'}
+              </button>
+            </form>
+          )}
+
+          <p className="login-legal">
+            Pending accounts cannot access patient data. Do not use this student
+            project for real patient-care decisions without security, privacy
+            and clinical validation.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('ckd-theme') || 'light');
