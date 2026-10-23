@@ -13,7 +13,16 @@ class Settings(BaseSettings):
     RAG_MODEL_CACHE: str = 'models/embedding_cache'
     RAG_EMBEDDING_MODEL: str = 'sentence-transformers/all-MiniLM-L6-v2'
     RAG_MIN_RELEVANCE: float = 0.20
-
+    #Password Recovery Setting
+        # Password recovery / SMTP
+    SMTP_HOST: str = ''
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ''
+    SMTP_PASSWORD: str = ''
+    SMTP_FROM_EMAIL: str = ''
+    SMTP_USE_TLS: bool = True
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+    FRONTEND_BASE_URL: str = 'http://localhost:5173'
 settings = Settings()
 
 def allowed_origins() -> list[str]:
